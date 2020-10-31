@@ -1,0 +1,400 @@
+<!-- Bootstrap HTML for running the unit tests. -->
+<html>
+    <head>
+        <meta charset="utf-8"/>
+       
+        <script src="pyodide_dev.js"></script>
+    </head>
+    <body>
+<div id=x></div>
+</body>
+
+        <script type="text/javascript">
+
+        var host = window.location.hostname; 
+
+         window_logs = [];
+         console.log = function(message) {
+             window_logs.push(message);
+         }
+        // console.log = function(m1,m2) {
+        //     window_logs.push(m1+','+m2);
+        // }
+         console.warn = function(message) {
+             window_logs.push(message);
+         }
+         console.info = function(message) {
+             window_logs.push(message);
+         }
+         console.error = function(message) {
+             window_logs.push(message);
+         }
+
+         function showlogs() {
+           if (window_logs.length > 0 ) {
+                window_logs.forEach( function(x) { 
+                    document.getElementById("x").innerHTML += x; 
+                    document.getElementById("x").innerHTML += '<br>\n';   
+                }); 
+                window_logs = [];
+           }
+         }
+
+         window.x = setInterval(showlogs, 10);
+
+
+        function showit (more) { // more is a string with \n's in it
+           var xx = document.getElementById("x"); 
+           console.log("",more);
+           if (more == undefined ) return;
+           var res = more.split('\n');// break into source lines.
+           console.log("res",res);
+           
+           //if ( more == "") return;
+           var out = pyodide.runPythonAsync(more); // execute it as python,  returns the result of the expression, converted to Javascript objects (See type conversions).
+
+           xx.innerHTML += "code: ";
+           xx.innerHTML += more;
+           xx.innerHTML += "   ";
+
+           if (out != undefined ) {
+               xx.innerHTML += "|   result:";
+               xx.innerHTML += out;
+          }
+          xx.innerHTML += "<br>";
+
+          return out; // might be a promise
+        }
+
+
+        // async/await version of loadJSON..
+        function getJSON2(url) {
+            return new Promise(function (resolve, reject) {
+                var xobj = new XMLHttpRequest();
+                xobj.open('get', url, true);
+                xobj.overrideMimeType("application/arraybuffer");
+                //xobj.responseType = 'document';
+                xobj.responseType = 'arraybuffer'; // essential to prevent it being parsed as string, rather than bytes
+                xobj.onload = function () {
+                    var status = xobj.status;
+                    if (status == 200) {
+                        //resolve(xobj.response.documentElement.innerHTML);
+                        //resolve(xobj.responseText);
+                        resolve(xobj.response);
+                    } else {
+                        reject(status);
+                    }
+                };
+                xobj.send();
+            });
+        }
+ 
+        var remoteTLOG = getJSON2('http://'+host+'/pyodide/capture.mav2.battery_status.tlog');
+//        var remoteTLOG = getJSON2('http://'+host+'/pyodide/mav.tlog');
+        var byteArray; // will be a Uint8Arr1ay
+        var byteArrayIdx = 0;
+        var repeats = 0 ; // how many times to do it before the demo times out.? 
+        remoteTLOG.then( function(bytes) {
+
+                console.log('..remoteTLOG fetched.', bytes);
+
+                byteArray = new Uint8Array(bytes);
+
+                //console.log('Uint8Array byteArray ',byteArray);
+                }
+        );
+
+     
+
+var code1 = 
+"import io, code, sys\n"+
+"from js import pyodide\n"+
+"import micropip\n"+
+"micropip.install('http://"+host+"/pyodide/wheel-tests/pymavlink-2.4.11-py38-none-any.whl')\n";
+
+var code3 = 
+"PROTOCOL_2_0 = '2.0'\n"+
+"dialect = 'ardupilotmega'\n"+
+"modname = 'pymavlink.dialects.v20.' + dialect\n"+
+"print(modname)\n"+
+"mod = None\n"+
+"mod = __import__(modname)\n"+
+"components = modname.split('.')\n"+
+"for comp in components[1:]:\n"+
+"    mod = getattr(mod, comp)\n"+
+"current_dialect = dialect\n"+
+"mavlink = mod\n";
+
+let code4 = `
+print(mavlink)
+a = None
+mav = mavlink.MAVLink(a, srcSystem=1, srcComponent=1, use_native=False)
+mav.robust_parsing = True
+print(mav)
+`;
+
+
+let code5 = `
+def cb1(*args, **kwargs):
+    # user-friendly packet
+    p = args[0]
+    #print(p)
+
+    # this is just an example for a BATTERY_STATUS packet:
+    if p._type == 'BATTERY_STATUS':
+        print('BATTERY_STATUS packet... PARSED SUCCESSFULLY')
+        print('mlen='+str(p._header.mlen))
+        print('seq='+str(p._header.seq))
+        print('srcSystem='+str(p._header.srcSystem))
+        print('srcComponent='+str(p._header.srcComponent))
+        print('msgId='+str(p._header.msgId))
+        print('incompat_flags='+str(p._header.incompat_flags))
+        print('compat_flags='+str(p._header.compat_flags))
+        print('id='+str(p.id))
+        print('battery_function='+str(p.battery_function))
+        print('type='+str(p.type))
+        print('temperature='+str(p.temperature))
+        print('voltages='+str(p.voltages))
+        print('current_battery='+str(p.current_battery))
+        print('current_consumed='+str(p.current_consumed))
+        print('energy_consumed='+str(p.energy_consumed))
+        print('energy_consumed='+str(p.energy_consumed))
+        print('battery_remaining='+str(p.battery_remaining))
+        print('time_remaining='+str(p.time_remaining))
+        print('charge_state='+str(p.charge_state))
+    else:
+        # entire contents of object
+        print(p.__dict__)
+
+    # show packet bytes:
+    s = str(p._msgbuf)
+    print("parsed packet shown as bytes:"+s[11:-1]) # leave off array('B',  and  )
+
+
+`;
+
+// show we can read mavlink in a file from the python virtual fielsystem
+let code6 = `
+with open('/tmp/capture.mav2.tlog', "rb") as f:
+    byte = f.read(1)
+    while byte != b"":
+        # Do stuff with byte.
+        byte = f.read(1)
+        #print(byte,int.from_bytes(byte,byteorder='little'), bin(int.from_bytes(byte,byteorder='little'))),
+        m = mav.parse_char(byte)
+        if m is not None:
+            type = m.get_type()
+            if type != 'BAD_DATA':
+                cb1(m)
+            else:
+                pass
+                #print('bad data')
+
+`;
+
+// show we can get it streamed in one-byte-at-a-time from javascript
+let code7= `
+while True:
+        # Do stuff with byte.
+        byte_as_int = getbyte(1)
+        if byte_as_int != None:
+            byte = byte_as_int.to_bytes(1,'little') 
+        else:
+            byte = b' '
+        #print(byte,int.from_bytes(byte,byteorder='little'),bin(int.from_bytes(byte,byteorder='little'))),
+        m = mav.parse_char(byte)
+        if m is not None:
+            type = m.get_type()
+            if type != 'BAD_DATA':
+                cb1(m)
+            else:
+                pass
+                #print('bad data')
+
+`;
+
+    async function probe_fs(root='/'){ 
+
+        let promise = new Promise((resolve) => resolve());
+        let FS = pyodide._module.FS;
+
+        function recurseDir(rootpath) {
+         // console.log('path',rootpath);
+          let dirs;
+          try {
+            dirs = FS.readdir(rootpath);
+          } catch {
+            return;
+          }
+          for (let entry of dirs) {
+            if (entry.startsWith('.')) {
+              continue;
+            }
+            const path = rootpath + entry;
+            console.log('file',path);
+            if (FS.isDir(FS.lookupPath(path).node.mode)) {
+              recurseDir(path + '/');
+            }
+          }
+        }
+
+        recurseDir(root);
+
+    return promise;
+
+    }
+
+        // todo runPythonAsync might be better as it will actually loada all the modules for us on the fly as the code needs them...
+
+          document.getElementById("x").innerHTML += 'loading python, please wait...\n<br>';
+
+          languagePluginLoader.then(() => {
+
+return pyodide.loadPackage(['micropip']) // returns a promise
+
+          }).then((v) => {
+ // pyodide is now ready to use...
+           console.log("import sys");
+return pyodide.runPython("import sys\nprint(sys.version)\n");
+
+          }).then((v) => {
+
+          //  showit(code1);// python import pyodide
+
+           console.log("import io, code, sys");
+return pyodide.runPython("import io, code, sys\n");
+
+          }).then((v) => {
+           console.log("import iodide");
+
+return pyodide.runPythonAsync("from js import pyodide\n");
+
+   }).then((v) => {
+           console.log("import time");
+
+return pyodide.runPythonAsync("import time\n");
+
+
+          }).then((v) => {
+           console.log("import micropip");
+return pyodide.runPython("import micropip\n");
+
+          }).then((v) => {
+           console.log("micropip fetching pymavlink wheel");
+return pyodide.runPythonAsync("micropip.install('http://"+host+"/pyodide/wheel-tests/pymavlink-2.4.11-py38-none-any.whl')\n");
+
+          }).then((v) => {
+
+           console.log("import pymavlink");
+
+
+return pyodide.runPython("mod = __import__('pymavlink')\np=mod\ns = str(p)\ns2 = s[7:-1]\nprint('   -->',s2)\n");
+
+          }).then((v) => {
+
+           console.log("import pymavlink.dialects");
+return pyodide.runPython("import pymavlink.dialects\ns = str(pymavlink.dialects)\ns2 = s[7:-1]\nprint('   -->',s2)\n");
+
+
+          }).then((v) => {
+
+           console.log("import pymavlink.dialects.v20");
+return pyodide.runPython("import pymavlink.dialects.v20\ns = str(pymavlink.dialects.v20)\ns2 = s[7:-1]\nprint('   -->',s2)\n");
+
+
+          }).then((v) => {
+
+           console.log("import pymavlink.dialects.v20.ardupilotmega");
+return pyodide.runPython("import pymavlink.dialects.v20.ardupilotmega\ns = str(pymavlink.dialects.v20.ardupilotmega)\ns2 = s[7:-1]\nprint('   -->',s2)\n");
+
+
+          }).then((v) => {
+
+           console.log("import mavutil");
+return pyodide.runPython("from pymavlink import mavutil\ns = str(mavutil)\ns2 = s[7:-1]\nprint('   -->',s2)\n");
+
+
+
+          }).then((v) => {
+
+console.log('-------------------------------------------------------------------------------');
+           console.log("<h3>creating mavlink v2 ardupilotmega obj</h3>");
+
+return pyodide.runPython("mavlink = pymavlink.dialects.v20.ardupilotmega\n");//print(vars(mavlink))");
+
+
+          }).then((v) => {
+
+           console.log("instantiating mavlink obj");
+return pyodide.runPython("mav = mavlink.MAVLink(None, srcSystem=1, srcComponent=1, use_native=False)\n");
+
+          }).then((v) => {
+
+           console.log("enabling robust parsing.");
+return pyodide.runPython("mav.robust_parsing = True\n");
+
+          }).then((v) => {
+
+           console.log("using mav obj2");
+return pyodide.runPython(code5);
+
+          }).then((v) => {
+
+           //pyodide.open_url('http://'+host+'/pyodide/capture.mav2.battery_status.tlog');
+
+return pyodide.loadPackage(['tlog']) // returns a promise that because of tlog.js almost being a module loader we end up with a /tmp/capture.mav2.tlog  file in the virtual fs
+
+          }).then((v) => {
+
+            //let FS = pyodide._module.FS;
+
+           //probe_fs('/'); // must end with /
+           probe_fs('/tmp/'); // must end with /
+
+           console.log("<h3>code to parse from file:</h3>-------------------------------------------------------------------------------");
+           console.log(code6);
+           console.log("-------------------------------------------------------------------------------");
+return pyodide.runPython(code6);
+
+
+
+          }).then((v) => {
+
+         console.log("<h3>code to parse byte stream from js:</h3>---------------------------------------------------------------------------------");
+         console.log(code7);
+         console.log("---------------------------------------------------------------------------------");
+
+        // create a new js function that will be available from Python as 'x = getbyte(1)'
+        // when python call its, it'll create a javascript alert with the parameter 
+        pyodide.globals.getbyte =  function(n) { 
+                //alert(n);  
+
+                if (byteArrayIdx < byteArray.length ) {
+                    byteArrayIdx++;
+                } else {
+                    byteArrayIdx=0;
+                    repeats++;
+                    if ( repeats > 2 ) throw new Error("Parsed it twice, that's enough of a demo");
+
+                } 
+                //console.log(byteArray);
+                //console.log(byteArray.length);
+                //console.log(byteArrayIdx);
+                //console.log("pre:",byteArray[byteArrayIdx]);
+                return byteArray[byteArrayIdx]; 
+        }
+
+
+
+return pyodide.runPython(code7);
+
+ }).then((v) => {
+
+         console.log("DONE");
+
+          });
+
+
+
+        </script>
+</html>
